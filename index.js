@@ -686,27 +686,20 @@ app.get("/health", (req, res) => {
   });
 });
 
-app.post("/notify", (req, res) => {
-  console.log("Received notification data:", req.body);
-  const { details, todayCount, totalUses } = req.body;
+app.post("/notify", async (req, res) => {
+  const { details, todayCount, totalUses, canvasImage, count } = req.body;
 
-  if (!details) {
-    return res.status(400).send({ error: "Missing notification details." });
-  }
-
-  // İstatistikleri güncelle
+  // Eski istatistik güncelleme kodları...
   statsData.totalUses = totalUses || statsData.totalUses + 1;
   statsData.todayUses = todayCount || statsData.todayUses + 1;
   statsData.weeklyUses = Math.floor(statsData.weeklyUses + 1);
 
   // Son bildirimi kaydet
   statsData.notifications.unshift({
-    skillName: details.skillName,
-    source: details.source,
+    skillName: details?.skillName,
+    source: details?.source,
     timestamp: new Date().toISOString(),
   });
-
-  // Son 10 bildirimi tut
   if (statsData.notifications.length > 10) {
     statsData.notifications = statsData.notifications.slice(0, 10);
   }
@@ -717,48 +710,50 @@ app.post("/notify", (req, res) => {
     return res.status(500).send({ error: "Channel not found." });
   }
 
-  const activeModesString =
-    details.activeModes.length > 0 ? details.activeModes.join(", ") : "None";
+  // Canvas görselini dosyaya kaydet
+  let attachment = null;
+  let filename = null;
+  if (canvasImage) {
+    try {
+      const matches = canvasImage.match(/^data:image\/png;base64,(.+)$/);
+      if (!matches) throw new Error("Geçersiz base64!");
+      const buffer = Buffer.from(matches[1], 'base64');
+      filename = `preview_${Date.now()}.png`;
+      require('fs').writeFileSync(filename, buffer);
+      attachment = new (require('discord.js').AttachmentBuilder)(filename);
+    } catch (e) {
+      console.error("Görsel kaydedilemedi:", e);
+    }
+  }
 
-  const embed = new EmbedBuilder()
-    .setTitle(`✨ New Effect Code Generated! (${details.source})`)
-    .setDescription(`*Skill Name: \`${details.skillName}\`*`)
-    .setColor(details.source === "3D Editor" ? 0xf39c12 : 0x3498db) // Gold for 3D, Blue for 2D
+  // Embed oluştur
+  const embed = new (require('discord.js').EmbedBuilder)()
+    .setTitle(`✨ New Effect Code Generated! (${details?.source || '2D Editor'})`)
+    .setDescription(`*Skill Name: \`${details?.skillName || 'Unknown'}\`*\n\nElement Count: **${count ?? details?.elementCount ?? 'N/A'}**`)
+    .setColor(details?.source === "3D Editor" ? 0xf39c12 : 0x3498db)
     .addFields(
-      { name: "Layer Count", value: `**${details.layerCount}**`, inline: true },
-      {
-        name: "Element Count",
-        value: `**${details.elementCount}**`,
-        inline: true,
-      },
-      { name: "⚡ Active Modes", value: activeModesString, inline: false },
+      { name: "Layer Count", value: `**${details?.layerCount ?? 'N/A'}**`, inline: true },
+      { name: "⚡ Active Modes", value: details?.activeModes?.length ? details.activeModes.join(", ") : "None", inline: false },
     )
     .setTimestamp()
     .setFooter({
       text: "Powered by AuraFX",
       iconURL: "https://aurafx.vercel.app/favicon.ico",
     });
+  if (attachment && filename) {
+    embed.setImage(`attachment://${filename}`);
+  }
 
-  channel
-    .send({ embeds: [embed] })
-    .then(async (message) => {
-      console.log("✅ Notification sent to Discord successfully!");
-      
-      // Eğer mention aktifse ve kullanıcı ID'si varsa, etiketleyerek mesaj gönder
-      if (statsData.mentionEnabled && statsData.mentionUserId) {
-        await channel.send({
-          content: `🔔 <@${statsData.mentionUserId}> Yeni bir kod üretildi!`,
-          reply: { messageReference: message.id }
-        });
-        console.log("✅ Mention message sent successfully!");
-      }
-      
-      res.status(200).send({ success: true, message: "Notification sent." });
-    })
-    .catch((error) => {
-      console.error("❌ Failed to send notification to Discord:", error);
-      res.status(500).send({ error: "Failed to send Discord message." });
-    });
+  // Mesajı gönder
+  try {
+    await channel.send({ embeds: [embed], files: attachment ? [attachment] : [] });
+    if (filename) require('fs').unlinkSync(filename); // Dosyayı sil
+    res.status(200).send({ success: true, message: "Notification sent." });
+  } catch (err) {
+    console.error("❌ Failed to send notification to Discord:", err);
+    if (filename) try { require('fs').unlinkSync(filename); } catch {}
+    res.status(500).send({ error: "Failed to send Discord message." });
+  }
 });
 
 app.listen(PORT, () => {
