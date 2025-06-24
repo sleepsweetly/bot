@@ -687,22 +687,12 @@ app.get("/health", (req, res) => {
 });
 
 app.post("/notify", async (req, res) => {
-  const { details, todayCount, totalUses, canvasImage, count } = req.body;
+  // Verileri doğrudan al
+  const { canvasImage, skillName, elementCount, layerCount, activeModes, source } = req.body;
 
-  // Eski istatistik güncelleme kodları...
-  statsData.totalUses = totalUses || statsData.totalUses + 1;
-  statsData.todayUses = todayCount || statsData.todayUses + 1;
-  statsData.weeklyUses = Math.floor(statsData.weeklyUses + 1);
-
-  // Son bildirimi kaydet
-  statsData.notifications.unshift({
-    skillName: details?.skillName,
-    source: details?.source,
-    timestamp: new Date().toISOString(),
-  });
-  if (statsData.notifications.length > 10) {
-    statsData.notifications = statsData.notifications.slice(0, 10);
-  }
+  // LOG: Gelen görselin başı ve uzunluğu
+  console.log("canvasImage başı:", typeof canvasImage, canvasImage ? canvasImage.slice(0, 50) : "YOK");
+  console.log("canvasImage uzunluğu:", canvasImage ? canvasImage.length : "YOK");
 
   const channel = client.channels.cache.get(CHANNEL_ID);
   if (!channel) {
@@ -720,6 +710,8 @@ app.post("/notify", async (req, res) => {
       const buffer = Buffer.from(matches[1], 'base64');
       filename = `preview_${Date.now()}.png`;
       require('fs').writeFileSync(filename, buffer);
+      // LOG: Dosya gerçekten oluştu mu?
+      console.log("Dosya kaydedildi mi?", filename, require('fs').existsSync(filename));
       attachment = new (require('discord.js').AttachmentBuilder)(filename);
     } catch (e) {
       console.error("Görsel kaydedilemedi:", e);
@@ -728,12 +720,12 @@ app.post("/notify", async (req, res) => {
 
   // Embed oluştur
   const embed = new (require('discord.js').EmbedBuilder)()
-    .setTitle(`✨ New Effect Code Generated! (${details?.source || '2D Editor'})`)
-    .setDescription(`*Skill Name: \`${details?.skillName || 'Unknown'}\`*\n\nElement Count: **${count ?? details?.elementCount ?? 'N/A'}**`)
-    .setColor(details?.source === "3D Editor" ? 0xf39c12 : 0x3498db)
+    .setTitle(`✨ New Effect Code Generated! (${source || '2D Editor'})`)
+    .setDescription(`*Skill Name: \`${skillName || 'Unknown'}\`*\n\nElement Count: **${elementCount ?? 'N/A'}**`)
+    .setColor(source === "3D Editor" ? 0xf39c12 : 0x3498db)
     .addFields(
-      { name: "Layer Count", value: `**${details?.layerCount ?? 'N/A'}**`, inline: true },
-      { name: "⚡ Active Modes", value: details?.activeModes?.length ? details.activeModes.join(", ") : "None", inline: false },
+      { name: "Layer Count", value: `**${layerCount ?? 'N/A'}**`, inline: true },
+      { name: "⚡ Active Modes", value: activeModes?.length ? activeModes.join(", ") : "None", inline: false },
     )
     .setTimestamp()
     .setFooter({
